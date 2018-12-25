@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:int="http://www.springframework.org/schema/integration"
+       xmlns:int-jms="http://www.springframework.org/schema/integration/jms"
+       xmlns:int-http="http://www.springframework.org/schema/integration/http"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-4.0.xsd
+                http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.0.xsd
+                http://www.springframework.org/schema/integration http://www.springframework.org/schema/integration/spring-integration-4.1.xsd
+                http://www.springframework.org/schema/integration/jms http://www.springframework.org/schema/integration/jms/spring-integration-jms.xsd
+                http://www.springframework.org/schema/integration/http
+                http://www.springframework.org/schema/integration/http/spring-integration-http-4.1.xsd">
+
+    <!-- 扫描位置 -->
+    <context:component-scan base-package="com.lin.integration.service"/>
+
+    <!-- 测试dto模式传输 -->
+    <int:channel id="testChannel"/>
+    <int:service-activator input-channel="testChannel" ref="receiveServiceImpl" method="hello"/>
+
+    <int:channel id="channel" ></int:channel>
+
+    <!-- 测试多参数传递 -->
+    <int:channel id="moreParamChannel"/>
+    <int:service-activator input-channel="moreParamChannel"
+                           expression="@receiveServiceImpl.helloMoreParam(payload.name,payload.age)"/>
+
+    <!-- 网关通道口模式，dto -->
+    <int:channel id="getWayChannel">
+        <int:queue/>
+    </int:channel>
+    <int:gateway service-interface="com.lin.integration.service.interfaces.UseGetWaySender" id="helloGetWaySender"
+                 default-request-channel="getWayChannel"/>
+    <int:outbound-channel-adapter channel="getWayChannel" ref="receiveServiceImpl" method="hello">
+        <int:poller fixed-delay="0"></int:poller>
+    </int:outbound-channel-adapter>
+
+    <!-- 网关通道口模式，多参数传递 -->
+    <int:channel id="getWayMoreParamChannel">
+        <int:queue/>
+    </int:channel>
+    <int:gateway service-interface="com.lin.integration.service.interfaces.MoreParamSender" id="getWayMoreParamSender"
+                 default-request-channel="getWayMoreParamChannel"/>
+    <int:outbound-channel-adapter channel="getWayMoreParamChannel"
+                                  expression="@receiveServiceImpl.helloMoreParam(payload.name,payload.age)">
+        <int:poller fixed-delay="0"></int:poller>
+    </int:outbound-channel-adapter>
+
+    <!-- 测试Mq配置-->
+    <int:channel id="mqTopicChannel"/>
+    <bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+        <property name="brokerURL">
+            <value>tcp://127.0.0.1:61616?trace=true&amp;keepAlive=true</value>
+        </property>
+        <property name="useAsyncSend" value="true"/>
+    </bean>
+    <int-jms:outbound-channel-adapter channel="mqTopicChannel" destination-name="topic.myTopic" pub-sub-domain="true"/>
+    <int:channel id="listenerChannel"/>
+    <int-jms:message-driven-channel-adapter id="messageDrivenAdapter" channel="listenerChannel"
+                                            destination-name="topic.myTopic" pub-sub-domain="true"/>
+    <int:service-activator input-channel="listenerChannel" ref="messageListenerImpl" method="processMessage"/>
+
+    <!-- 测试订阅发布 -->
+    <!--min-subscribers=""参数为预期最小订阅者，如果必须有订阅者，则这里填写最少数；默认值为0-->
+    <int:publish-subscribe-channel id="pubsubChannel"/>
+    <int:outbound-channel-adapter channel="pubsubChannel" ref="receiveServiceImpl" method="helloReceiveOne">
+    </int:outbound-channel-adapter>
+    <int:outbound-channel-adapter channel="pubsubChannel" ref="receiveServiceImpl" method="helloReceiveTwo">
+    </int:outbound-channel-adapter>
+
+    <!-- 测试路由根据header参数 -->
+    <int:channel id="routingChannel"><!-- 路由入口 -->
+        <int:queue/>
+    </int:channel>
+    <int:header-value-router input-channel="routingChannel" header-name="testHeader"><!-- 路由器 -->
+        <int:poller fixed-delay="3000"/>
+        <int:mapping value="A" channel="routerAChannel"/>
+        <int:mapping value="B" channel="routerBChannel"/>
+    </int:header-value-router><!-- 路由出口 -->
+    <int:channel id="routerAChannel">
+        <int:queue/>
+    </int:channel>
+    <int:outbound-channel-adapter channel="routerAChannel" ref="receiveServiceImpl" method="helloRouterTest">
+        <int:poller fixed-delay="3000"/>
+    </int:outbound-channel-adapter>
+    <int:channel id="routerBChannel"><!-- 路由出口 -->
+        <int:queue/>
+    </int:channel>
+    <int:outbound-channel-adapter channel="routerBChannel"
+                                  expression="@receiveServiceImpl.helloRouterMap(payload.name,payload.age)">
+        <int:poller fixed-delay="3000"/>
+    </int:outbound-channel-adapter>
+
+    <!-- 根据参数类型配置 -->
+    <int:channel id="routingTypeChannel"><!-- 路由入口 -->
+        <int:queue/>
+    </int:channel>
+    <int:payload-type-router input-channel="routingTypeChannel">
+        <int:poller fixed-delay="3000"/>
+        <int:mapping type="java.lang.String" channel="routerStringChannel" />
+        <int:mapping type="java.lang.Integer" channel="routerIntegerChannel" />
+    </int:payload-type-router>
+    <int:channel id="routerStringChannel"><!-- 路由出口 -->
+        <int:queue/>
+    </int:channel>
+    <int:outbound-channel-adapter channel="routerStringChannel" ref="receiveServiceImpl" method="routerString">
+        <int:poller fixed-delay="0"/>
+    </int:outbound-channel-adapter>
+    <int:channel id="routerIntegerChannel"><!-- 路由出口 -->
+        <int:queue/>
+    </int:channel>
+    <int:outbound-channel-adapter channel="routerIntegerChannel" ref="receiveServiceImpl" method="routerInteger">
+        <int:poller fixed-delay="3000"/>
+    </int:outbound-channel-adapter>
+
+    <!-- 全局拦截器 -->
+    <int:channel-interceptor pattern="testInterceptorChannel" order="3" ref="countingChannelInterceptor">
+    </int:channel-interceptor>
+    <int:channel id="testInterceptorChannel"/>
+    <int:service-activator input-channel="testInterceptorChannel" ref="receiveServiceImpl" method="hello"/>
+
+    <!-- bridge -->
+    <int:channel id="bridgeSendChannel"/>
+    <int:bridge input-channel="bridgeSendChannel" output-channel="bridgeReceiveAChannel"/>
+    <int:channel id="bridgeReceiveAChannel"/>
+    <int:bridge input-channel="bridgeReceiveAChannel" output-channel="bridgeReceiveBChannel"/>
+    <int:channel id="bridgeReceiveBChannel">
+        <int:queue/>
+    </int:channel>
+    <int:outbound-channel-adapter channel="bridgeReceiveBChannel"
+                                  expression="@receiveServiceImpl.helloBridge(payload.name,payload.age)">
+        <int:poller fixed-delay="3000"/>
+    </int:outbound-channel-adapter>
+
+    <!-- Filter过滤器 -->
+    <int:channel id="filterAChannel"/>
+    <int:filter input-channel="filterAChannel" output-channel="filterBChannel" expression="payload.name.equals('haha')"/>
+    <int:channel id="filterBChannel"/>
+    <int:service-activator input-channel="filterBChannel"
+                           expression="@receiveServiceImpl.helloMoreParam(payload.name,payload.age)"/>
+
+    <!-- transformer转换器 -->
+    <int:channel id="transformerInChannel"/>
+    <int:transformer input-channel="transformerInChannel"
+                     output-channel="transformerOutChannel"
+                     expression="payload.name.toUpperCase() + '- [' + T(java.lang.System).currentTimeMillis() + ']'"/>
+    <int:channel id="transformerOutChannel">
+        <int:queue/>
+    </int:channel>
+    <int:outbound-channel-adapter channel="transformerOutChannel" ref="receiveServiceImpl" method="helloTransformer">
+        <int:poller fixed-delay="3000"/>
+    </int:outbound-channel-adapter>
+
+    <!-- http方式调用 -->
+    <int:channel id="httpSendChannel"/>
+    <int-http:outbound-gateway id="httpExample" request-channel="httpSendChannel" url="http://localhost:8091/testH/receiver?str={str}"
+         http-method="GET" extract-request-payload="false" expected-response-type="java.lang.String"
+                               charset="UTF-8" reply-channel="httpSendReplyChannel">
+        <int-http:uri-variable name="str" expression="payload"/>
+    </int-http:outbound-gateway>
+    <int:channel id="httpSendReplyChannel"/>
+    <int:outbound-channel-adapter channel="httpSendReplyChannel" ref="receiveServiceImpl" method="helloNoParam">
+    </int:outbound-channel-adapter>
+</beans>
